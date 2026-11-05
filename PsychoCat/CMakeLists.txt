@@ -29,6 +29,15 @@ set_target_properties(PsychoCat PROPERTIES SLINT_EMBED_RESOURCES embed-files)
 
 target_link_libraries(PsychoCat PRIVATE Slint::Slint)
 
+# Windows 下默认是控制台子系统，双击 exe 会额外弹出一个黑框；
+# 设为 GUI 子系统程序，并让 MSVC 仍以 main() 作为入口（否则会找不到 WinMain）
+if(WIN32)
+    set_target_properties(PsychoCat PROPERTIES WIN32_EXECUTABLE TRUE)
+    if(MSVC)
+        target_link_options(PsychoCat PRIVATE "/ENTRY:mainCRTStartup")
+    endif()
+endif()
+
 # Linux 下用 Xlib 修复中文窗口标题乱码
 if(UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)
