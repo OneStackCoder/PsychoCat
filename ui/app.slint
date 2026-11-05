@@ -1,0 +1,55 @@
+import { Button, LineEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "Slint C++ Demo";
+    width: 420px;
+    height: 320px;
+    background: #f5f6f8;
+
+    // 与 C++ 共享的属性
+    in-out property <int> counter: 0;
+    in-out property <string> user-name: "";
+
+    // 导出给 C++ 绑定的事件
+    callback increment();
+
+    VerticalBox {
+        padding: 24px;
+        spacing: 16px;
+
+        Text {
+            text: "Hello, " + (root.user-name == "" ? "stranger" : root.user-name) + "!";
+            font-size: 24px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            color: #1f2937;
+        }
+
+        LineEdit {
+            placeholder-text: "请输入你的名字...";
+            text: root.user-name;
+        }
+
+        Text {
+            text: "按钮被点击了 \{root.counter} 次";
+            font-size: 16px;
+            horizontal-alignment: center;
+            color: #4b5563;
+        }
+
+        HorizontalBox {
+            spacing: 12px;
+            alignment: center;
+
+            Button {
+                text: "点我 +1";
+                clicked => { root.increment(); }
+            }
+
+            Button {
+                text: "重置";
+                clicked => { root.counter = 0; }
+            }
+        }
+    }
+}

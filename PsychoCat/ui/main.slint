@@ -1,0 +1,161 @@
+export struct Cell {
+    row: int,
+    col: int,
+    x: int,
+    y: int,
+    blocked: bool,
+}
+
+export component MainWindow inherits Window {
+    title: "围住神经猫";
+    width: 512px;
+    height: 654px;
+    background: #ececec;
+
+    // 9x9 棋盘的每个点位（x/y 为像素坐标）
+    in-out property <[Cell]> cells;
+    in-out property <int> cat-x: 0;
+    in-out property <int> cat-y: 0;
+    in-out property <int> cat-frame-row: 0;
+    in-out property <int> cat-frame-col: 0;
+    in-out property <bool> enclosed: false;
+    in-out property <bool> show-result: false;
+    in-out property <bool> won: false;
+    in-out property <string> result-info;
+    in-out property <string> result-title;
+
+    callback cell-clicked(int, int);
+    callback restart();
+    callback quit();
+
+    Rectangle {
+        x: 12px;
+        y: 12px;
+        width: 488px;
+        height: 630px;
+        clip: true;
+
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: @image-url("../images/bg.jpg");
+        }
+
+        // 所有圆点
+        for cell in root.cells : Rectangle {
+            x: cell.x * 1px;
+            y: cell.y * 1px;
+            width: 40px;
+            height: 40px;
+            border-radius: 20px;
+            background: cell.blocked ? #ff845e : #b5b5b5;
+
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.cell-clicked(cell.row, cell.col); }
+            }
+        }
+
+        // 小猫：用精灵图 + 裁剪窗口实现逐帧动画
+        Rectangle {
+            x: root.cat-x * 1px;
+            y: root.cat-y * 1px;
+            width: 48px;
+            height: 73.18px;
+            clip: true;
+
+            Image {
+                x: -root.cat-frame-col * 48px;
+                y: -root.cat-frame-row * 73.18px;
+                width: 201.45px;
+                height: 402.86px;
+                source: root.enclosed ? @image-url("../images/encircle.png") : @image-url("../images/stay.png");
+            }
+        }
+
+        // 重新开始按钮
+        Image {
+            x: 181px;
+            y: 134px;
+            width: 33px;
+            height: 36px;
+            source: @image-url("../images/replay_main.png");
+
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.restart(); }
+            }
+        }
+    }
+
+    // 结算弹窗
+    if root.show-result : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000066;
+
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 467px;
+            height: 474px;
+            background: transparent;
+
+            Image {
+                width: parent.width;
+                height: 354px;
+                source: root.won ? @image-url("../images/victory.png") : @image-url("../images/failed.png");
+            }
+
+            if root.won : Text {
+                y: 228px;
+                width: parent.width;
+                height: 30px;
+                text: root.result-info;
+                color: #d81e06;
+                font-size: 17px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if root.won : Text {
+                y: 272px;
+                width: parent.width;
+                height: 30px;
+                text: root.result-title;
+                color: #d81e06;
+                font-size: 17px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            Image {
+                x: 12px;
+                y: 372px;
+                width: 186px;
+                height: 90px;
+                source: @image-url("../images/exit.png");
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.quit(); }
+                }
+            }
+
+            Image {
+                x: 269px;
+                y: 372px;
+                width: 186px;
+                height: 90px;
+                source: @image-url("../images/replay.png");
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.restart(); }
+                }
+            }
+        }
+    }
+}

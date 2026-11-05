@@ -1,0 +1,27 @@
+# 构建产物
+build/
+cmake-build-*/
+/third_party
+
+# IDE
+.vscode/
+.idea/
+.vs/
+*.user
+
+# 编译中间文件
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# CMake
+CMakeCache.txt
+CMakeUserPresets.json
+
+# 系统杂项
+.DS_Store
+Thumbs.db

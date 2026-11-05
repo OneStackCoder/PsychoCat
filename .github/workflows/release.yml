@@ -1,0 +1,145 @@
+name: Build Release
+
+# 发布 Release 时触发，构建 Windows/Linux/macOS 可执行文件并上传到该 Release
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  SLINT_VERSION: "1.18.1"
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 注意：Slint 1.15+ 起 Windows 只发布 win64-MSVC-AMD64.exe（NSIS 安装包），
+          # macOS 只发布 Darwin-arm64 包，因此 Windows 用 7z 解包、macOS 只构建 arm64。
+          - name: windows-x64
+            os: windows-latest
+            slint_pkg: "Slint-cpp-1.18.1-win64-MSVC-AMD64.exe"
+            pkg_dir: ""
+          - name: linux-x64
+            os: ubuntu-22.04
+            slint_pkg: "Slint-cpp-1.18.1-Linux-x86_64.tar.gz"
+            pkg_dir: "Slint-cpp-1.18.1-Linux-x86_64"
+          - name: macos-arm64
+            os: macos-14
+            slint_pkg: "Slint-cpp-1.18.1-Darwin-arm64.tar.gz"
+            pkg_dir: "Slint-cpp-1.18.1-Darwin-arm64"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Linux：Slint 运行库与本项目 X11 标题修复所需的开发包
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxkbcommon-dev libxcb1-dev libxcb-cursor-dev \
+            libfontconfig1-dev libfreetype-dev libinput-dev libudev-dev patchelf
+
+      - name: Download Slint C++ package
+        shell: bash
+        run: |
+          curl -fSL --retry 3 -o slint-pkg "${{ github.server_url }}/slint-ui/slint/releases/download/v${SLINT_VERSION}/${{ matrix.slint_pkg }}"
+          mkdir -p "$RUNNER_TEMP/slint"
+          case "${{ matrix.slint_pkg }}" in
+            *.tar.gz) tar -xzf slint-pkg -C "$RUNNER_TEMP/slint" ;;
+            *.zip)    unzip -q slint-pkg -d "$RUNNER_TEMP/slint" ;;
+            *.exe)    7z x -y slint-pkg -o"$RUNNER_TEMP/slint" > /dev/null ;;  # NSIS 安装包，用 runner 自带的 7-Zip 解包
+            *)        echo "未知的包类型: ${{ matrix.slint_pkg }}"; exit 1 ;;
+          esac
+          prefix="$RUNNER_TEMP/slint/${{ matrix.pkg_dir }}"
+          if [ -z "${{ matrix.pkg_dir }}" ] || [ ! -d "$prefix" ]; then
+            # Windows 的安装包没有固定的顶层目录名，按 slintConfig.cmake 反推前缀
+            prefix=""
+            cfg=$(find "$RUNNER_TEMP/slint" -name 'slintConfig.cmake' -print -quit)
+            if [ -n "$cfg" ]; then
+              case "$cfg" in
+                */lib/cmake/*) prefix="${cfg%%/lib/cmake/*}" ;;
+                */cmake/*)     prefix="${cfg%%/cmake/*}" ;;
+              esac
+            fi
+            if [ -z "$prefix" ]; then
+              prefix="$RUNNER_TEMP/slint"
+            fi
+          fi
+          if [ ! -d "$prefix" ]; then
+            echo "未找到 Slint 包目录，解压内容如下："
+            find "$RUNNER_TEMP/slint" -maxdepth 2 | head -50
+            exit 1
+          fi
+          echo "SLINT_PREFIX=$prefix" >> "$GITHUB_ENV"
+          ls "$prefix"  # 确认解压内容
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S PsychoCat -B build -DCMAKE_BUILD_TYPE=Release -DSLINT_PREFIX="$SLINT_PREFIX"
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release -j
+
+      # 把可执行文件和 Slint 运行库放进同一目录并打包：
+      # - Windows: exe + slint_cpp.dll -> zip
+      # - Linux:   exe + libslint_cpp.so（patchelf 设 rpath=$ORIGIN）-> tar.gz
+      # - macOS:   exe + libslint_cpp.dylib（install_name_tool 改 @rpath）-> tar.gz
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          # 多配置生成器（VS）产物在 build/Release 下
+          if (Test-Path "build/Release/PsychoCat.exe") { $exe = "build/Release/PsychoCat.exe" } else { $exe = "build/PsychoCat.exe" }
+          $dll = (Get-ChildItem -Recurse -Filter slint_cpp.dll "$env:SLINT_PREFIX" | Select-Object -First 1).FullName
+          if (-not $dll) { throw "slint_cpp.dll not found under SLINT_PREFIX" }
+          Compress-Archive -Path $exe, $dll -DestinationPath "PsychoCat-$tag-${{ matrix.name }}.zip"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          mkdir pkg
+          cp build/PsychoCat pkg/
+          cp "$SLINT_PREFIX/lib/libslint_cpp.so" pkg/
+          patchelf --set-rpath '$ORIGIN' pkg/PsychoCat
+          # 基础自检：确认能解析到随包的 Slint 库
+          ldd pkg/PsychoCat | grep -i slint
+          tar -czf "PsychoCat-$tag-${{ matrix.name }}.tar.gz" -C pkg .
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          exe_dir=$(dirname "$(find build -name PsychoCat -type f | head -1)")
+          mkdir pkg
+          cp "$exe_dir/PsychoCat" pkg/
+          dylib=$(find "$SLINT_PREFIX/lib" -name "libslint_cpp*.dylib" | head -1)
+          cp "$dylib" pkg/
+          dylib_name=$(basename "$(readlink -f "$dylib" 2>/dev/null || echo "$dylib")")
+          # 让 exe 通过 @executable_path 找到随包 dylib
+          install_name_tool -add_rpath "@executable_path" pkg/PsychoCat
+          old_ref=$(otool -L pkg/PsychoCat | grep "libslint_cpp" | awk '{print $1}' | head -1)
+          install_name_tool -change "$old_ref" "@rpath/$dylib_name" pkg/PsychoCat
+          # 自检：确认不再指向解压临时目录
+          otool -L pkg/PsychoCat | grep slint
+          tar -czf "PsychoCat-$tag-${{ matrix.name }}.tar.gz" -C pkg .
+
+      - name: Upload to Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          gh release upload "$tag" PsychoCat-$tag-* --clobber
