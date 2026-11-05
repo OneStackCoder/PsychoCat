@@ -23,6 +23,10 @@ add_executable(PsychoCat
 # 把 ui/main.slint 编译成 C++，并生成头文件 main.h
 slint_target_sources(PsychoCat ui/main.slint)
 
+# 默认情况下 Slint 在运行时从磁盘加载 @image-url 引用的图片，散包后图片会丢失；
+# 改为把图片原始文件直接内嵌进可执行文件，产物只需 exe + 运行库即可独立运行
+set_target_properties(PsychoCat PROPERTIES SLINT_EMBED_RESOURCES embed-files)
+
 target_link_libraries(PsychoCat PRIVATE Slint::Slint)
 
 # Linux 下用 Xlib 修复中文窗口标题乱码
